@@ -5,18 +5,20 @@
 #include "DataFormats/L1DTTrackFinder/interface/L1MuDTChambPhDigi.h"
 #include "DataFormats/L1DTTrackFinder/interface/L1MuDTChambThDigi.h"
 #include "DataFormats/RPCDigi/interface/RPCDigiL1Link.h"
+#include "DataFormats/GEMDigi/interface/GEMCSCPadDigi.h"
 #include "DataFormats/HcalDigi/interface/HcalTriggerPrimitiveDigi.h"
 
 // detector ID types
 #include "DataFormats/MuonDetId/interface/DTChamberId.h"
 #include "DataFormats/MuonDetId/interface/CSCDetId.h"
 #include "DataFormats/MuonDetId/interface/RPCDetId.h"
+#include "DataFormats/MuonDetId/interface/GEMDetId.h"
 #include "DataFormats/HcalDetId/interface/HcalTrigTowerDetId.h"
 
 using namespace L1TMuon;
 
 namespace {
-  const char subsystem_names[][5] = {"DT","CSC","RPC","HCAL"};
+  const char subsystem_names[][5] = {"DT","CSC","RPC","GEM","HCAL"};
 }
 
 //constructors from DT data
@@ -41,7 +43,7 @@ TriggerPrimitive::TriggerPrimitive(const DTChamberId& detid,
   _dt.qualityCode = digi_phi.code();
   _dt.Ts2TagCode = digi_phi.Ts2Tag();
   _dt.BxCntCode = digi_phi.BxCnt();
-}
+  }
 
 TriggerPrimitive::TriggerPrimitive(const DTChamberId& detid,
 				   const L1MuDTChambThDigi& digi_th,
@@ -64,7 +66,7 @@ TriggerPrimitive::TriggerPrimitive(const DTChamberId& detid,
   _dt.qualityCode = -1;
   _dt.Ts2TagCode = -1;
   _dt.BxCntCode = -1;
-}
+  }
 
 TriggerPrimitive::TriggerPrimitive(const DTChamberId& detid,
 				   const L1MuDTChambPhDigi& digi_phi,
@@ -88,7 +90,7 @@ TriggerPrimitive::TriggerPrimitive(const DTChamberId& detid,
   _dt.qualityCode = digi_phi.code();
   _dt.Ts2TagCode = digi_phi.Ts2Tag();
   _dt.BxCntCode = digi_phi.BxCnt();    
-}
+  }
 
 //constructor from CSC data
 TriggerPrimitive::TriggerPrimitive(const CSCDetId& detid,
@@ -108,7 +110,9 @@ TriggerPrimitive::TriggerPrimitive(const CSCDetId& detid,
   _csc.bx0     = digi.getBX0();
   _csc.syncErr = digi.getSyncErr();
   _csc.cscID   = digi.getCSCID();
-}
+  //_csc.gemBX   = digi.getGEMBX();
+  _csc.gemDPhi = digi.getGEMDPhi();
+  }
 
 // constructor from RPC data
 TriggerPrimitive::TriggerPrimitive(const RPCDetId& detid,
@@ -121,7 +125,18 @@ TriggerPrimitive::TriggerPrimitive(const RPCDetId& detid,
   _rpc.strip = strip;
   _rpc.layer = layer;
   _rpc.bx = bx;
-}
+  }
+
+//constructor from GEM data
+TriggerPrimitive::TriggerPrimitive(const GEMDetId& detid,
+				   const GEMCSCPadDigi& digi):
+  _id(detid),
+  _subsystem(TriggerPrimitive::kGEM) {
+  calculateGEMGlobalSector(detid,_globalsector,_subsector);
+  _gem.pad  = digi.pad();
+  _gem.bx   = digi.bx();
+  //  std::cout <<"TriggerPrimitive gem.strip " << _gem.strip << " gem.bx " << _gem.bx << std::endl;
+  }
 
 // constructor from HCAL data
 TriggerPrimitive::TriggerPrimitive(const HcalTrigTowerDetId& detid,
@@ -132,12 +147,13 @@ TriggerPrimitive::TriggerPrimitive(const HcalTrigTowerDetId& detid,
   _hcal.size = digi_hcal.size();
   _hcal.SOI_fineGrain = digi_hcal.SOI_fineGrain();
   _hcal.SOI_compressedEt = digi_hcal.SOI_compressedEt();
-}
+  }
 
 TriggerPrimitive::TriggerPrimitive(const TriggerPrimitive& tp):
   _dt(tp._dt),
   _csc(tp._csc),
   _rpc(tp._rpc),
+  _gem(tp._gem),
   _hcal(tp._hcal),
   _id(tp._id),
   _subsystem(tp._subsystem),  
@@ -152,6 +168,7 @@ TriggerPrimitive& TriggerPrimitive::operator=(const TriggerPrimitive& tp) {
   this->_dt = tp._dt;
   this->_csc = tp._csc;
   this->_rpc = tp._rpc;
+  this->_gem = tp._gem;
   this->_id = tp._id;
   this->_hcal = tp._hcal;
   this->_subsystem = tp._subsystem;
@@ -191,6 +208,8 @@ bool TriggerPrimitive::operator==(const TriggerPrimitive& tp) const {
 	   this->_rpc.strip == tp._rpc.strip &&
 	   this->_rpc.layer == tp._rpc.layer &&
 	   this->_rpc.bx == tp._rpc.bx &&
+	   this->_gem.strip == tp._gem.strip &&
+	   this->_gem.bx == tp._gem.bx &&
 	   this->_hcal.size == tp._hcal.size &&
 	   this->_hcal.SOI_fineGrain == tp._hcal.SOI_fineGrain &&
 	   this->_hcal.SOI_compressedEt == tp._hcal.SOI_compressedEt &&
@@ -208,8 +227,81 @@ const int TriggerPrimitive::getBX() const {
     return _csc.bx;
   case kRPC:
     return _rpc.bx;
+  case kGEM:
+    return _gem.bx;
   case kHCAL: // not found bx in HCAL code yet
     return -99; //_hcal.bx;
+  default:
+    throw cms::Exception("Invalid Subsytem") 
+      << "The specified subsystem for this track stub is out of range"
+      << std::endl;
+  }
+  return -1;
+}
+
+const int TriggerPrimitive::getStrip() const {
+  switch(_subsystem) {
+  case kDT:
+    return -1;
+  case kCSC:
+    return _csc.strip;
+  case kRPC:
+    return _rpc.strip;
+  case kGEM:
+    return _gem.strip;
+  default:
+    throw cms::Exception("Invalid Subsytem") 
+      << "The specified subsystem for this track stub is out of range"
+      << std::endl;
+  }
+  return -1;
+}
+
+const int TriggerPrimitive::getWire() const {
+  switch(_subsystem) {
+  case kDT:
+    return -1;
+  case kCSC:
+    return _csc.keywire;
+  case kRPC:
+    return -1;
+  case kGEM:
+    return -1;
+  default:
+    throw cms::Exception("Invalid Subsytem") 
+      << "The specified subsystem for this track stub is out of range"
+      << std::endl;
+  }
+  return -1;
+}
+
+const int TriggerPrimitive::getPattern() const {
+  switch(_subsystem) {
+  case kDT:
+    return -1;
+  case kCSC:
+    return _csc.pattern;
+  case kRPC:
+    return -1;
+  case kGEM:
+    return -1;
+  default:
+    throw cms::Exception("Invalid Subsytem") 
+      << "The specified subsystem for this track stub is out of range"
+      << std::endl;
+  }
+  return -1;
+}
+const int TriggerPrimitive::Id() const {
+  switch(_subsystem) {
+  case kDT:
+    return -1;
+  case kCSC:
+    return _csc.cscID;
+  case kRPC:
+    return -1;
+  case kGEM:
+    return -1;
   default:
     throw cms::Exception("Invalid Subsytem") 
       << "The specified subsystem for this track stub is out of range"
@@ -233,9 +325,14 @@ void TriggerPrimitive::calculateRPCGlobalSector(const RPCDetId& chid,
 						unsigned& subsector ) {
 }
 
-void TriggerPrimitive::calculateHCALGlobalSector(const HcalTrigTowerDetId& chid,
+void TriggerPrimitive::calculateGEMGlobalSector(const GEMDetId& chid, 
 						unsigned& global_sector, 
 						unsigned& subsector ) {
+}
+
+void TriggerPrimitive::calculateHCALGlobalSector(const HcalTrigTowerDetId& chid,
+						 unsigned& global_sector, 
+						 unsigned& subsector ) {
 }
 
 void TriggerPrimitive::print(std::ostream& out) const {
@@ -277,6 +374,11 @@ void TriggerPrimitive::print(std::ostream& out) const {
     out << "Local BX      : " << _rpc.bx << std::endl;
     out << "Strip         : " << _rpc.strip << std::endl;
     out << "Layer         : " << _rpc.layer << std::endl;
+    break;
+  case kGEM:
+    out << detId<GEMDetId>() << std::endl;
+    out << "Local BX      : " << _gem.bx << std::endl;
+    out << "Strip         : " << _gem.strip << std::endl;
     break;
   case kHCAL:
     out << detId<HcalTrigTowerDetId>() << std::endl;

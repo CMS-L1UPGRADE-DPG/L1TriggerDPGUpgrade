@@ -15,6 +15,8 @@
 #include "L1Trigger/DTUtilities/interface/DTTrigGeom.h"
 #include "Geometry/RPCGeometry/interface/RPCGeometry.h"
 
+#include "Geometry/GEMGeometry/interface/GEMGeometry.h"
+
 #include "Geometry/CaloGeometry/interface/CaloGeometry.h"
 #include "Geometry/CaloGeometry/interface/CaloSubdetectorGeometry.h"
 #include "Geometry/HcalTowerAlgo/interface/HcalTrigTowerGeometry.h"
@@ -43,6 +45,9 @@ GeometryTranslator::calculateGlobalEta(const TriggerPrimitive& tp) const {
   case TriggerPrimitive::kRPC:
     return calcRPCSpecificEta(tp);
     break;
+  case TriggerPrimitive::kGEM:
+    return calcGEMSpecificEta(tp);
+    break;
   case TriggerPrimitive::kHCAL:
     return calcHCALSpecificEta(tp);
     break;
@@ -64,8 +69,29 @@ GeometryTranslator::calculateGlobalPhi(const TriggerPrimitive& tp) const {
   case TriggerPrimitive::kRPC:
     return calcRPCSpecificPhi(tp);
     break;
+  case TriggerPrimitive::kGEM:
+    return calcGEMSpecificPhi(tp);
+    break;
   case TriggerPrimitive::kHCAL:
     return calcHCALSpecificPhi(tp);
+    break;
+  default:
+    return std::nan("Invalid TP type!");
+    break;
+  }
+}
+
+double 
+GeometryTranslator::calculateGlobalZ(const TriggerPrimitive& tp) const {
+  switch(tp.subsystem()) {
+  case TriggerPrimitive::kDT:
+    return calcDTSpecificZ(tp);
+    break;
+  case TriggerPrimitive::kCSC:
+    return calcCSCSpecificZ(tp);
+    break;
+  case TriggerPrimitive::kRPC:
+    return calcRPCSpecificZ(tp);
     break;
   default:
     return std::nan("Invalid TP type!");
@@ -85,6 +111,9 @@ GeometryTranslator::calculateBendAngle(const TriggerPrimitive& tp) const {
   case TriggerPrimitive::kRPC:
     return calcRPCSpecificBend(tp);
     break;
+  case TriggerPrimitive::kGEM:
+    return calcGEMSpecificBend(tp);
+    break;
   case TriggerPrimitive::kHCAL:
     return calcHCALSpecificBend(tp);
     break;
@@ -102,16 +131,17 @@ void GeometryTranslator::checkAndUpdateGeometry(const edm::EventSetup& es) {
     geom.get(_georpc);  
     geom.get(_geocsc);    
     geom.get(_geodt);
+    geom.get(_geogem);
     _geom_cache_id = geomid;
     //}  
 
-  const CaloGeometryRecord& geomC = es.get<CaloGeometryRecord>();
-  geomid = geomC.cacheIdentifier(); 
-  //if( _geom_cache_id != geomid ) {
-    geomC.get(_geohcal);
-    geomC.get(_geohcaltrig);
-    _geom_cache_id = geomid;
-    //}
+  // const CaloGeometryRecord& geomC = es.get<CaloGeometryRecord>();
+  // geomid = geomC.cacheIdentifier(); 
+  // //if( _geom_cache_id != geomid ) {
+  //   geomC.get(_geohcal);
+  //   geomC.get(_geohcaltrig);
+  //   _geom_cache_id = geomid;
+  //   //}
 
 }
 
@@ -136,6 +166,11 @@ GeometryTranslator::calcRPCSpecificEta(const TriggerPrimitive& tp) const {
 double 
 GeometryTranslator::calcRPCSpecificPhi(const TriggerPrimitive& tp) const {  
   return getRPCSpecificPoint(tp).phi();
+}
+
+double 
+GeometryTranslator::calcRPCSpecificZ(const TriggerPrimitive& tp) const {  
+  return getRPCSpecificPoint(tp).z();
 }
 
 // this function actually does nothing since RPC
@@ -224,6 +259,11 @@ GeometryTranslator::calcCSCSpecificPhi(const TriggerPrimitive& tp) const {
 }
 
 double 
+GeometryTranslator::calcCSCSpecificZ(const TriggerPrimitive& tp) const {  
+  return getCSCSpecificPoint(tp).z();
+}
+
+double 
 GeometryTranslator::calcCSCSpecificBend(const TriggerPrimitive& tp) const {  
   return 0.0;
 }
@@ -274,6 +314,11 @@ GeometryTranslator::calcDTSpecificEta(const TriggerPrimitive& tp) const {
 double 
 GeometryTranslator::calcDTSpecificPhi(const TriggerPrimitive& tp) const {
   return calcDTSpecificPoint(tp).phi();
+}
+
+double 
+GeometryTranslator::calcDTSpecificZ(const TriggerPrimitive& tp) const {
+  return calcDTSpecificPoint(tp).z();
 }
 
 // we have the bend except for station 3
@@ -327,9 +372,46 @@ GeometryTranslator::calcHCALSpecificPhi(const TriggerPrimitive& tp) const {
   return getHCALSpecificPoint(tp).phi();
 }
 
+double 
+GeometryTranslator::calcHCALSpecificZ(const TriggerPrimitive& tp) const {
+  return getHCALSpecificPoint(tp).z();
+}
+
 // this function actually does nothing since HCAL
 // hits are point-like objects
 double 
 GeometryTranslator::calcHCALSpecificBend(const TriggerPrimitive& tp) const {
+  return 0.0;
+}
+
+
+GlobalPoint 
+GeometryTranslator::getGEMSpecificPoint(const TriggerPrimitive& tp) const {
+  const GEMDetId id(tp.detId<GEMDetId>());
+  std::unique_ptr<const GEMEtaPartition>  roll(_geogem->etaPartition(id));
+  const uint16_t strip = tp.getGEMData().strip;
+  const LocalPoint lp = roll->centreOfStrip(strip);
+  const GlobalPoint gp = roll->toGlobal(lp);
+  roll.release();  
+  return gp;
+}
+
+double 
+GeometryTranslator::calcGEMSpecificEta(const TriggerPrimitive& tp) const {  
+  return getGEMSpecificPoint(tp).eta();
+}
+
+double 
+GeometryTranslator::calcGEMSpecificPhi(const TriggerPrimitive& tp) const {  
+  return getGEMSpecificPoint(tp).phi();
+}
+
+double 
+GeometryTranslator::calcGEMSpecificZ(const TriggerPrimitive& tp) const {
+  return getGEMSpecificPoint(tp).z();
+}
+
+double 
+GeometryTranslator::calcGEMSpecificBend(const TriggerPrimitive& tp) const {
   return 0.0;
 }
